@@ -1,0 +1,53 @@
+<idea-plugin>
+    <id>com.github.b3kt.arthasbridge</id>
+    <name>Arthas Bridge</name>
+    <vendor>tiket.com Payment</vendor>
+    <description><![CDATA[
+    Attach <a href="https://arthas.aliyun.com">Alibaba Arthas</a> to a running JVM and drive it from the IDE.
+    <ul>
+      <li>Pick a local JVM and attach in one click, or connect to an existing Arthas (port-forward / tunnel).</li>
+      <li>Right-click a method: Watch, Trace, Stack, Monitor, Time Tunnel. Right-click a class: Decompile, Search, Hot-swap.</li>
+      <li>Results are rendered readably in the Arthas tool window; card-like numbers are masked by default.</li>
+    </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Arthas" anchor="bottom" icon="/icons/arthas.svg"
+                    factoryClass="com.github.b3kt.arthasbridge.ui.ArthasToolWindowFactory"/>
+        <applicationConfigurable parentId="tools" id="com.github.b3kt.arthasbridge.settings"
+                                 displayName="Arthas Bridge"
+                                 instance="com.github.b3kt.arthasbridge.settings.ArthasConfigurable"/>
+        <notificationGroup id="Arthas Bridge" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <group id="ArthasBridge.Menu" class="com.github.b3kt.arthasbridge.actions.ArthasActionGroup"
+               text="Arthas" popup="true" icon="/icons/arthas.svg">
+            <action id="ArthasBridge.Watch" class="com.github.b3kt.arthasbridge.actions.WatchAction"
+                    text="Watch Params / Return" description="Print arguments, return value and exception of each call"
+                    icon="AllIcons.Debugger.Watch"/>
+            <action id="ArthasBridge.Trace" class="com.github.b3kt.arthasbridge.actions.TraceAction"
+                    text="Trace (Where Is Time Spent?)" description="Show the call tree of the method with timings"/>
+            <action id="ArthasBridge.Stack" class="com.github.b3kt.arthasbridge.actions.StackAction"
+                    text="Stack (Who Calls This?)" description="Print the call stack every time the method is invoked"/>
+            <action id="ArthasBridge.Monitor" class="com.github.b3kt.arthasbridge.actions.MonitorAction"
+                    text="Monitor (Calls / Failures / Avg Time)" description="Aggregate call statistics every 5 seconds"/>
+            <action id="ArthasBridge.TimeTunnel" class="com.github.b3kt.arthasbridge.actions.TimeTunnelAction"
+                    text="Record Calls (Time Tunnel)" description="Record invocations so they can be inspected later with tt -i"/>
+            <separator/>
+            <action id="ArthasBridge.Jad" class="com.github.b3kt.arthasbridge.actions.JadAction"
+                    text="Decompile Loaded Class" description="Show the class source as it is loaded in the target JVM"/>
+            <action id="ArthasBridge.SearchClass" class="com.github.b3kt.arthasbridge.actions.SearchClassAction"
+                    text="Class Info (Loader, Jar)" description="Show where the class was loaded from"/>
+            <action id="ArthasBridge.Retransform" class="com.github.b3kt.arthasbridge.actions.RetransformAction"
+                    text="Hot-Swap Compiled Class…" description="Push the class files from the build output into the target JVM"
+                    icon="AllIcons.Actions.Lightning"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <add-to-group group-id="StructureViewPopupMenu" anchor="last"/>
+        </group>
+    </actions>
+</idea-plugin>
