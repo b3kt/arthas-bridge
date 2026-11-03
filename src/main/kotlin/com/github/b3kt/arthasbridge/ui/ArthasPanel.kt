@@ -21,7 +21,6 @@ import com.intellij.openapi.project.DumbAware
 import com.github.b3kt.arthasbridge.settings.ArthasSettings
 import java.awt.Font
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.DumbService
@@ -30,6 +29,7 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.InputValidator
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.search.GlobalSearchScope
@@ -53,6 +53,7 @@ import java.awt.BorderLayout
 import java.awt.FlowLayout
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JButton
+import javax.swing.JList
 import javax.swing.JPanel
 
 /**
@@ -71,8 +72,10 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
     private val status = JBLabel()
     private val processModel = DefaultComboBoxModel<JvmProcess>()
     private val processCombo = ComboBox(processModel, JBUI.scale(380)).apply {
-        renderer = SimpleListCellRenderer.create { label, value, _ ->
-            label.text = value?.let { "${it.pid}   ${it.name}" } ?: "No JVM found, start your app and refresh"
+        renderer = object : SimpleListCellRenderer<JvmProcess>() {
+            override fun customize(list: JList<out JvmProcess>, value: JvmProcess?, index: Int, selected: Boolean, hasFocus: Boolean) {
+                text = value?.let { "${it.pid}   ${it.name}" } ?: "No JVM found, start your app and refresh"
+            }
         }
         addActionListener { render(service.state) }
     }
@@ -204,7 +207,7 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
         val name = process.name
         if (!name.contains('.') || name.endsWith(".jar") || DumbService.isDumb(project)) return false
         return runCatching {
-            runReadAction { JavaPsiFacade.getInstance(project).findClass(name, GlobalSearchScope.projectScope(project)) != null }
+            ApplicationManager.getApplication().runReadAction(Computable { JavaPsiFacade.getInstance(project).findClass(name, GlobalSearchScope.projectScope(project)) != null })
         }.getOrDefault(false)
     }
 

@@ -5,7 +5,6 @@ import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.project.DumbService
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.search.GlobalSearchScope
@@ -22,6 +21,7 @@ import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.testFramework.LightVirtualFile
@@ -307,13 +307,13 @@ class ArthasService(private val project: Project) : Disposable {
             if (DumbService.isDumb(project)) return@ParamNames null
             val fqn = className.substringBefore("$$").replace('$', '.')
             val names = runCatching {
-                runReadAction {
+                ApplicationManager.getApplication().runReadAction(Computable {
                     JavaPsiFacade.getInstance(project).findClass(fqn, GlobalSearchScope.allScope(project))
                         ?.findMethodsByName(method, true)
                         ?.filter { it.parameterList.parametersCount == count }
                         ?.singleOrNull()
                         ?.parameterList?.parameters?.map { it.name }
-                }
+                })
             }.getOrNull() ?: return@ParamNames null
             names.also { paramCache[key] = it }
         }
