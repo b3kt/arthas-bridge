@@ -23,6 +23,8 @@ class ArthasSettings : SimplePersistentStateComponent<ArthasSettings.Options>(Op
         var telnetPort by property(0)
         var expandDepth by property(2)
         var resultLimit by property(5)
+        /** Ask for depth / limit / condition when starting a probe from the editor. */
+        var askProbeOptions by property(true)
         var maskSensitiveData by property(true)
         /** true = plain-language summaries (watch/tt/trace/stack/monitor); false = Arthas terminal format. */
         var readableOutput by property(true)

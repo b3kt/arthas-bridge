@@ -1,25 +1,46 @@
 package com.github.b3kt.arthasbridge.core
 
+/** How a probe started from the editor should run: watch depth, result limit, and an optional condition. */
+data class ProbeOptions(val depth: Int, val limit: Int, val condition: String? = null)
+
 /** Builds Arthas command lines for a class / method picked in the editor. */
 object ArthasCommands {
 
     /** Spring proxies are subclasses, so without this every call is reported twice. */
     private const val SKIP_PROXIES = "--exclude-class-pattern *CGLIB$$*"
 
-    fun watch(className: String, method: String, depth: Int, limit: Int) =
-        "watch $className $method '{params, returnObj, throwExp}' -x $depth -n $limit $SKIP_PROXIES"
+    fun watch(className: String, method: String, depth: Int, limit: Int, condition: String? = null) =
+        "watch $className $method '{params, returnObj, throwExp}'${cond(condition)} -x $depth -n $limit $SKIP_PROXIES"
 
-    fun trace(className: String, method: String, limit: Int) =
-        "trace $className $method -n $limit $SKIP_PROXIES"
+    fun trace(className: String, method: String, limit: Int, condition: String? = null) =
+        "trace $className $method${cond(condition)} -n $limit $SKIP_PROXIES"
 
-    fun stack(className: String, method: String, limit: Int) =
-        "stack $className $method -n $limit $SKIP_PROXIES"
+    fun stack(className: String, method: String, limit: Int, condition: String? = null) =
+        "stack $className $method${cond(condition)} -n $limit $SKIP_PROXIES"
 
-    fun monitor(className: String, method: String, limit: Int) =
-        "monitor -c 5 $className $method -n $limit $SKIP_PROXIES"
+    fun monitor(className: String, method: String, limit: Int, condition: String? = null) =
+        "monitor -c 5 $className $method${cond(condition)} -n $limit $SKIP_PROXIES"
 
-    fun timeTunnel(className: String, method: String, limit: Int) =
-        "tt -t $className $method -n $limit $SKIP_PROXIES"
+    fun timeTunnel(className: String, method: String, limit: Int, condition: String? = null) =
+        "tt -t $className $method${cond(condition)} -n $limit $SKIP_PROXIES"
+
+    /**
+     * An Arthas condition from an OGNL expression and/or a minimum duration (`#cost` is in ms);
+     * null when neither is given.
+     */
+    fun condition(expression: String?, slowerThanMs: Int?): String? {
+        val expr = expression?.trim()?.takeIf { it.isNotEmpty() }
+        val cost = slowerThanMs?.let { "#cost > $it" }
+        return when {
+            expr != null && cost != null -> "($expr) && $cost"
+            else -> expr ?: cost
+        }
+    }
+
+    private fun cond(condition: String?): String {
+        val c = condition?.trim()?.takeIf { it.isNotEmpty() } ?: return ""
+        return if ('\'' in c) " \"$c\"" else " '$c'"
+    }
 
     fun jad(className: String) = "jad $className"
 

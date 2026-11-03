@@ -13,6 +13,8 @@ import com.intellij.psi.util.ClassUtil
 import com.intellij.psi.util.PsiTreeUtil
 import com.github.b3kt.arthasbridge.core.ArthasCommands
 import com.github.b3kt.arthasbridge.core.ArthasService
+import com.github.b3kt.arthasbridge.core.ProbeOptions
+import com.github.b3kt.arthasbridge.ui.ProbeOptionsPopup
 import com.github.b3kt.arthasbridge.settings.ArthasSettings
 import org.jetbrains.uast.UClass
 import org.jetbrains.uast.UMethod
@@ -58,7 +60,10 @@ private fun selectedElement(e: AnActionEvent): PsiElement? {
 /** Base for "right-click → Arthas → X" actions. */
 abstract class ArthasCodeAction(private val needsMethod: Boolean) : AnAction(), DumbAware {
 
-    abstract fun command(target: CodeTarget, settings: ArthasSettings.Options): String
+    abstract fun command(target: CodeTarget, options: ProbeOptions): String
+
+    /** Probes (watch, trace, …) first ask for depth / limit / condition; null runs straight away. */
+    open val probeKind: String? = null
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
@@ -70,39 +75,49 @@ abstract class ArthasCodeAction(private val needsMethod: Boolean) : AnAction(), 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val target = codeTarget(e) ?: return
-        ArthasService.getInstance(project).runFromEditor(command(target, ArthasSettings.getInstance().state))
+        val settings = ArthasSettings.getInstance().state
+        val run = { options: ProbeOptions -> ArthasService.getInstance(project).runFromEditor(command(target, options)) }
+        val kind = probeKind
+        if (kind == null || !settings.askProbeOptions) return run(ProbeOptions(settings.expandDepth, settings.resultLimit))
+        val label = target.className.substringAfterLast('.') + "." + target.methodName
+        ProbeOptionsPopup.show(kind, label, e.getData(CommonDataKeys.EDITOR), e.dataContext, run)
     }
 }
 
 class WatchAction : ArthasCodeAction(needsMethod = true) {
-    override fun command(target: CodeTarget, settings: ArthasSettings.Options) =
-        ArthasCommands.watch(target.className, target.methodName!!, settings.expandDepth, settings.resultLimit)
+    override val probeKind = "watch"
+    override fun command(target: CodeTarget, options: ProbeOptions) =
+        ArthasCommands.watch(target.className, target.methodName!!, options.depth, options.limit, options.condition)
 }
 
 class TraceAction : ArthasCodeAction(needsMethod = true) {
-    override fun command(target: CodeTarget, settings: ArthasSettings.Options) =
-        ArthasCommands.trace(target.className, target.methodName!!, settings.resultLimit)
+    override val probeKind = "trace"
+    override fun command(target: CodeTarget, options: ProbeOptions) =
+        ArthasCommands.trace(target.className, target.methodName!!, options.limit, options.condition)
 }
 
 class StackAction : ArthasCodeAction(needsMethod = true) {
-    override fun command(target: CodeTarget, settings: ArthasSettings.Options) =
-        ArthasCommands.stack(target.className, target.methodName!!, settings.resultLimit)
+    override val probeKind = "stack"
+    override fun command(target: CodeTarget, options: ProbeOptions) =
+        ArthasCommands.stack(target.className, target.methodName!!, options.limit, options.condition)
 }
 
 class MonitorAction : ArthasCodeAction(needsMethod = true) {
-    override fun command(target: CodeTarget, settings: ArthasSettings.Options) =
-        ArthasCommands.monitor(target.className, target.methodName!!, settings.resultLimit)
+    override val probeKind = "monitor"
+    override fun command(target: CodeTarget, options: ProbeOptions) =
+        ArthasCommands.monitor(target.className, target.methodName!!, options.limit, options.condition)
 }
 
 class TimeTunnelAction : ArthasCodeAction(needsMethod = true) {
-    override fun command(target: CodeTarget, settings: ArthasSettings.Options) =
-        ArthasCommands.timeTunnel(target.className, target.methodName!!, settings.resultLimit)
+    override val probeKind = "tt"
+    override fun command(target: CodeTarget, options: ProbeOptions) =
+        ArthasCommands.timeTunnel(target.className, target.methodName!!, options.limit, options.condition)
 }
 
 class JadAction : ArthasCodeAction(needsMethod = false) {
-    override fun command(target: CodeTarget, settings: ArthasSettings.Options) = ArthasCommands.jad(target.className)
+    override fun command(target: CodeTarget, options: ProbeOptions) = ArthasCommands.jad(target.className)
 }
 
 class SearchClassAction : ArthasCodeAction(needsMethod = false) {
-    override fun command(target: CodeTarget, settings: ArthasSettings.Options) = ArthasCommands.classInfo(target.className)
+    override fun command(target: CodeTarget, options: ProbeOptions) = ArthasCommands.classInfo(target.className)
 }

@@ -85,6 +85,29 @@ class Probe internal constructor(val id: Int, val command: String) {
     }
 }
 
+/** Totals for a probe; durations are over the kept (most recent) hits. */
+data class ProbeStats(val calls: Int, val avgMs: Double?, val maxMs: Double?, val failed: Int) {
+    /** `14 calls · avg 83 ms · max 2.10 s · 1 failed`; a monitor hit is a reporting interval, not a call. */
+    fun label(kind: String) = buildString {
+        append(calls).append(if (kind == "monitor") " report" else " call").append(if (calls == 1) "" else "s")
+        avgMs?.let { append("  ·  avg ").append(formatMs(it)) }
+        maxMs?.let { if (kind != "monitor") append("  ·  max ").append(formatMs(it)) }
+        if (failed > 0) append("  ·  ").append(failed).append(" failed")
+    }
+}
+
+val Probe.stats: ProbeStats
+    get() {
+        val costs = hits().mapNotNull { it.costMs }
+        return ProbeStats(hitCount, costs.takeIf { it.isNotEmpty() }?.average(), costs.maxOrNull(), errorCount)
+    }
+
+fun formatMs(v: Double): String = when {
+    v >= 1000 -> String.format(Locale.ROOT, "%.2f s", v / 1000)
+    v >= 10 -> String.format(Locale.ROOT, "%.0f ms", v)
+    else -> String.format(Locale.ROOT, "%.2f ms", v)
+}
+
 /** Reads probe commands and turns their HTTP API results into [ProbeHit]s. */
 object ProbeParser {
 

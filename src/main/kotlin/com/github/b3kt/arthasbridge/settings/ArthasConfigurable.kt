@@ -46,6 +46,10 @@ class ArthasConfigurable : BoundConfigurable("Arthas Bridge") {
                 intTextField(1..1000).bindIntText({ options.resultLimit }, { options.resultLimit = it }).columns(4)
                     .comment("Keeps watch / trace / tt from flooding the console or slowing the target.")
             }
+            row {
+                checkBox("Ask for depth, limit and condition when starting from the editor")
+                    .bindSelected({ options.askProbeOptions }, { options.askProbeOptions = it })
+            }
         }
         group("Output") {
             buttonsGroup {

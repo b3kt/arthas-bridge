@@ -52,6 +52,8 @@ interface ArthasListener {
     /** State or counters changed; [hit] is set when a new call was recorded. */
     fun probeChanged(probe: Probe, hit: ProbeHit?) {}
     fun probeRemoved(probe: Probe) {}
+    /** Show this probe in the Probes tab (e.g. its editor gutter icon was clicked). */
+    fun revealProbe(probe: Probe) {}
 }
 
 internal fun isLoopback(host: String) =
@@ -279,6 +281,11 @@ class ArthasService(private val project: Project) : Disposable {
     // ---- probes ----
 
     fun probes(): List<Probe> = probes.toList()
+
+    fun revealProbe(probe: Probe) {
+        ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.show()
+        listeners.forEach { it.revealProbe(probe) }
+    }
 
     fun stopProbe(probe: Probe) = runInBackground {
         probe.stopRequested = true

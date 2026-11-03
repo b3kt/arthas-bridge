@@ -36,6 +36,8 @@ internal object SourceNavigation {
         })
     }
 
+    fun isProjectClass(project: Project, className: String) = className in projectClasses(project, listOf(className))
+
     private fun find(project: Project, className: String, scope: GlobalSearchScope): PsiClass? {
         if (DumbService.isDumb(project) || className.isBlank() || className.contains('*')) return null
         val facade = JavaPsiFacade.getInstance(project)

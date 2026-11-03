@@ -10,6 +10,7 @@
       <li>Overview: live CPU, heap, threads and GC with the busiest threads.</li>
       <li>Threads and Classes tabs: sortable thread list with clickable stacks; search loaded classes, see where they came from, decompile, and probe their methods.</li>
       <li>Probes: several watch / trace / monitor jobs side by side, with trace call trees that highlight the slowest steps.</li>
+      <li>In the editor: probed methods get a gutter icon and live call stats at the end of the line; set limit, condition or a minimum duration before starting.</li>
       <li>Results are rendered readably in the Arthas tool window; card-like numbers are masked by default.</li>
     </ul>
     ]]></description>

@@ -1,11 +1,14 @@
 package com.github.b3kt.arthasbridge.ui
 
+import com.github.b3kt.arthasbridge.core.ArthasCommands
 import com.github.b3kt.arthasbridge.core.ArthasListener
 import com.github.b3kt.arthasbridge.core.ArthasService
 import com.github.b3kt.arthasbridge.core.Probe
 import com.github.b3kt.arthasbridge.core.ProbeHit
 import com.github.b3kt.arthasbridge.core.ProbeState
 import com.github.b3kt.arthasbridge.core.TraceNode
+import com.github.b3kt.arthasbridge.core.formatMs
+import com.github.b3kt.arthasbridge.settings.ArthasSettings
 import com.intellij.execution.filters.TextConsoleBuilderFactory
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.icons.AllIcons
@@ -25,11 +28,13 @@ import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.CollectionListModel
 import com.intellij.ui.JBColor
 import com.intellij.ui.OnePixelSplitter
+import com.intellij.ui.PopupHandler
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBList
 import com.intellij.ui.treeStructure.Tree
 import java.awt.BorderLayout
+import java.awt.Component
 import java.awt.datatransfer.StringSelection
 import java.util.Locale
 import javax.swing.JList
@@ -91,6 +96,15 @@ class ProbesPanel(private val project: Project, parent: Disposable) : JPanel(Bor
             firstComponent = ScrollPaneFactory.createScrollPane(hitsTree, true)
             secondComponent = detail.component
         }
+        hitsTree.addMouseListener(object : PopupHandler() {
+            override fun invokePopup(comp: Component, x: Int, y: Int) {
+                // Right-click acts on the row under the mouse, like the project view.
+                hitsTree.getClosestPathForLocation(x, y)?.let { hitsTree.selectionPath = it }
+                val menu = ActionManager.getInstance().createActionPopupMenu("ArthasBridge.ProbeTreePopup", traceMenu())
+                menu.setTargetComponent(hitsTree)
+                menu.component.show(comp, x, y)
+            }
+        })
         add(OnePixelSplitter(false, 0.3f).apply {
             firstComponent = left
             secondComponent = right
@@ -112,6 +126,8 @@ class ProbesPanel(private val project: Project, parent: Disposable) : JPanel(Bor
             }
 
             override fun probeRemoved(probe: Probe) = onEdt { probeModel.remove(probe) }
+
+            override fun revealProbe(probe: Probe) = onEdt { probeList.setSelectedValue(probe, true) }
         }, this)
     }
 
@@ -218,6 +234,64 @@ class ProbesPanel(private val project: Project, parent: Disposable) : JPanel(Bor
         })
     }
 
+    /** Right-click menu for a step in a trace tree; only offered for classes from the project's own sources. */
+    private fun traceMenu() = DefaultActionGroup().apply {
+        add(object : DumbAwareAction("Jump to Call Site", "Open the line that makes this call", AllIcons.Actions.EditSource) {
+            override fun actionPerformed(e: AnActionEvent) {
+                val (step, caller) = selectedStep() ?: return
+                caller?.let { SourceNavigation.open(project, it.className, it.methodName, step.line) }
+            }
+            override fun update(e: AnActionEvent) {
+                val (step, caller) = selectedStep() ?: return hide(e)
+                if (caller == null || step.line <= 0 || !SourceNavigation.isProjectClass(project, caller.className)) return hide(e)
+                e.presentation.isEnabledAndVisible = true
+                e.presentation.text = "Jump to Call Site (${simpleName(caller.className)}:${step.line})"
+            }
+            override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        })
+        add(object : DumbAwareAction("Jump to Method", "Open the called method", AllIcons.Nodes.Method) {
+            override fun actionPerformed(e: AnActionEvent) {
+                val (step, _) = selectedStep() ?: return
+                SourceNavigation.open(project, step.className, step.methodName)
+            }
+            override fun update(e: AnActionEvent) {
+                val (step, _) = selectedStep() ?: return hide(e)
+                if (!SourceNavigation.isProjectClass(project, step.className)) return hide(e)
+                e.presentation.isEnabledAndVisible = true
+                e.presentation.text = "Jump to ${simpleName(step.className)}.${step.methodName}()"
+            }
+            override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        })
+        add(Separator.getInstance())
+        add(object : DumbAwareAction("Trace This Method", "Start a new trace probe on this step", AllIcons.Actions.ProfileCPU) {
+            override fun actionPerformed(e: AnActionEvent) {
+                val (step, _) = selectedStep() ?: return
+                service.run(ArthasCommands.trace(step.className, step.methodName, ArthasSettings.getInstance().state.resultLimit))
+            }
+            override fun update(e: AnActionEvent) {
+                val (step, _) = selectedStep() ?: return hide(e)
+                if (!SourceNavigation.isProjectClass(project, step.className)) return hide(e)
+                e.presentation.isVisible = true
+                e.presentation.isEnabled = service.isConnected
+                e.presentation.text = "Add Trace on ${simpleName(step.className)}.${step.methodName}()"
+            }
+            override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        })
+    }
+
+    /** The selected trace step and the step that called it (null for the traced method itself). */
+    private fun selectedStep(): Pair<TraceNode, TraceNode?>? {
+        val node = hitsTree.selectionPath?.lastPathComponent as? DefaultMutableTreeNode ?: return null
+        val step = node.userObject as? TraceNode ?: return null
+        return step to ((node.parent as? DefaultMutableTreeNode)?.userObject as? TraceNode)
+    }
+
+    private fun hide(e: AnActionEvent) {
+        e.presentation.isEnabledAndVisible = false
+    }
+
+    private fun simpleName(className: String) = className.substringBefore("$$").substringAfterLast('.')
+
     private fun navigate(probe: Probe) {
         probe.className?.let { SourceNavigation.open(project, it, probe.methodName) }
     }
@@ -237,7 +311,7 @@ class ProbesPanel(private val project: Project, parent: Disposable) : JPanel(Bor
             append(probe.target, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
             val count = probe.limit?.let { "${probe.hitCount}/$it" } ?: "${probe.hitCount}"
             append("   $count", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-            probe.lastCostMs?.let { append("  ·  last ${ms(it)}", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+            probe.lastCostMs?.let { append("  ·  last ${formatMs(it)}", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
             if (probe.errorCount > 0) append("  ·  ${probe.errorCount} failed", SimpleTextAttributes.ERROR_ATTRIBUTES)
             if (probe.state == ProbeState.FAILED) append("  ·  failed", SimpleTextAttributes.ERROR_ATTRIBUTES)
             toolTipText = listOfNotNull(probe.command, probe.message).joinToString("\n")
@@ -259,7 +333,7 @@ class ProbesPanel(private val project: Project, parent: Disposable) : JPanel(Bor
             icon = if (hit.error) AllIcons.General.Error else AllIcons.Nodes.Method
             append("#${hit.seq}  ", SimpleTextAttributes.GRAYED_ATTRIBUTES)
             append(hit.time, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-            hit.costMs?.let { append("   ${ms(it)}", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES) }
+            hit.costMs?.let { append("   ${formatMs(it)}", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES) }
             append("   " + hit.summary, if (hit.error) SimpleTextAttributes.ERROR_ATTRIBUTES else SimpleTextAttributes.GRAYED_ATTRIBUTES)
         }
 
@@ -269,7 +343,7 @@ class ProbesPanel(private val project: Project, parent: Disposable) : JPanel(Bor
             append(n.className.substringBefore("$$").substringAfterLast('.') + "." + n.methodName + "()",
                 if (n.throws) SimpleTextAttributes.ERROR_ATTRIBUTES else SimpleTextAttributes.REGULAR_ATTRIBUTES)
             if (n.line > 0) append(" :${n.line}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-            append("   " + ms(n.totalNs / 1_000_000.0), costAttributes(share))
+            append("   " + formatMs(n.totalNs / 1_000_000.0), costAttributes(share))
             if (n.times > 1) append("  ×${n.times}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
             share?.let { append(String.format(Locale.ROOT, "   %.0f%%  ", it), costAttributes(it)); append(bar(it), costAttributes(it)) }
             n.exception?.let { append("   throws $it", SimpleTextAttributes.ERROR_ATTRIBUTES) }
@@ -295,11 +369,5 @@ class ProbesPanel(private val project: Project, parent: Disposable) : JPanel(Bor
     private companion object {
         val HOT = SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, JBColor(0xC7222D, 0xFF6B6B))
         val WARM = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor(0xA0620B, 0xE5A84B))
-
-        fun ms(v: Double) = when {
-            v >= 1000 -> String.format(Locale.ROOT, "%.2f s", v / 1000)
-            v >= 10 -> String.format(Locale.ROOT, "%.0f ms", v)
-            else -> String.format(Locale.ROOT, "%.2f ms", v)
-        }
     }
 }

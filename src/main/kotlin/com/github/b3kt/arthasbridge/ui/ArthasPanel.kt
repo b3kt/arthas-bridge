@@ -157,7 +157,10 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
             override fun probeAdded(probe: Probe) = onEdt { tabs.selectedComponent = probes; render(service.state) }
             override fun probeChanged(probe: Probe, hit: ProbeHit?) { if (hit == null) onEdt { render(service.state) } }
             override fun probeRemoved(probe: Probe) = onEdt { render(service.state) }
+            override fun revealProbe(probe: Probe) = onEdt { tabs.selectedComponent = probes }
         }, this)
+
+        ProbeEditorDecorator.getInstance(project).start()
 
         applyFontSize()
         ApplicationManager.getApplication().messageBus.connect(this).subscribe(ArthasSettings.CHANGED, Runnable { applyFontSize() })
