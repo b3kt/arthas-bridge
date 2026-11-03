@@ -60,7 +60,7 @@ import javax.swing.JPanel
 /**
  * Layout:
  *   [status]  JVM: [process ▾] [⟳] [Attach]  Connect to address…        [Stop Arthas] [Disconnect]
- *   [toolbar] | [Console | Probes] tabs: console output, or live watch / trace / … probes (see ProbesPanel)
+ *   [toolbar] | [Overview | Probes | Console] tabs: JVM health (OverviewPanel), live probes (ProbesPanel), console output
  *   › [command input with history]  [Run]
  */
 class ArthasPanel(private val project: Project, parent: Disposable) : SimpleToolWindowPanel(false, true), Disposable {
@@ -107,10 +107,16 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
     }
     private val runButton = JButton("Run", AllIcons.Actions.Execute).apply { addActionListener { submit() } }
 
+    private val overview = OverviewPanel(project, this) { command ->
+        tabs.selectedComponent = console.component
+        service.run(command)
+    }
     private val probes = ProbesPanel(project, this)
-    private val tabs = JBTabbedPane().apply {
-        addTab("Console", AllIcons.Debugger.Console, console.component)
+    private val tabs: JBTabbedPane = JBTabbedPane().apply {
+        addTab("Overview", AllIcons.Actions.ProfileCPU, overview)
         addTab("Probes", AllIcons.Debugger.Watch, probes)
+        addTab("Console", AllIcons.Debugger.Console, console.component)
+        selectedComponent = console.component
     }
 
     init {
@@ -197,7 +203,7 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
         stopButton.isVisible = connected
         disconnectButton.isVisible = connected
         runButton.isEnabled = connected
-        tabs.setTitleAt(1, if (service.liveProbeCount > 0) "Probes (${service.liveProbeCount})" else "Probes")
+        tabs.setTitleAt(tabs.indexOfComponent(probes), if (service.liveProbeCount > 0) "Probes (${service.liveProbeCount})" else "Probes")
         input.isEnabled = true
     }
 

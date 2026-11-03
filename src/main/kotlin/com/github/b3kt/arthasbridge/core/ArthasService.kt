@@ -240,6 +240,22 @@ class ArthasService(private val project: Project) : Disposable {
         }
     }
 
+    /**
+     * Samples CPU, memory, threads and GC with a one-shot `dashboard` (its own temporary session, so it
+     * doesn't disturb the console job or probes). Blocks about a second; call off the EDT. Null when not connected.
+     */
+    fun snapshot(): JvmSnapshot? {
+        val c = client ?: return null
+        val response = try {
+            c.exec(JvmSnapshot.COMMAND, 8_000)
+        } catch (e: ArthasException) {
+            LOG.debug(e)
+            return null
+        }
+        val results = response.getAsJsonObject("body")?.getAsJsonArray("results") ?: return null
+        return results.mapNotNull { if (it.isJsonObject) JvmSnapshot.parse(it.asJsonObject) else null }.lastOrNull()
+    }
+
     // ---- probes ----
 
     fun probes(): List<Probe> = probes.toList()

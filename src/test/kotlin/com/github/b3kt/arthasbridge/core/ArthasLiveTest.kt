@@ -61,6 +61,19 @@ class ArthasLiveTest {
     }
 
     @Test
+    fun `dashboard snapshot has cpu from the second sample`() {
+        assumeTrue(port != null)
+        val response = ArthasHttpClient("127.0.0.1", port!!).exec(JvmSnapshot.COMMAND, 8_000)
+        val snapshots = response.getAsJsonObject("body").getAsJsonArray("results")
+            .mapNotNull { JvmSnapshot.parse(it.asJsonObject) }
+        assertTrue("two samples expected, got ${snapshots.size}", snapshots.size == 2)
+        val s = snapshots.last()
+        assertTrue(s.heapUsed > 0 && s.heapMax >= s.heapUsed)
+        assertTrue(s.threads.any { it.name == "main" })
+        assertTrue("arthas sampler thread should have used some CPU", s.threads.any { it.cpu > 0 })
+    }
+
+    @Test
     fun `probes in separate sessions run side by side`() {
         assumeTrue(port != null)
         val client = ArthasHttpClient("127.0.0.1", port!!)
