@@ -1,0 +1,35 @@
+src/main/kotlin/com/github/b3kt/arthasbridge/core/ArthasService.kt
+  222a41f41dd69572 259-278
+src/main/kotlin/com/github/b3kt/arthasbridge/ui/ThreadsPanel.kt
+  222a41f41dd69572 1-20,22-49,51-234,236-342,344-345
+src/main/kotlin/com/github/b3kt/arthasbridge/ui/ClassesPanel.kt
+  222a41f41dd69572 1-37,39,43-61,65-88,91-143,145-150,152-164,166-172,174-192,194-235,237-244,246-294
+src/test/kotlin/com/github/b3kt/arthasbridge/core/InspectParserTest.kt
+  222a41f41dd69572 1-62
+src/test/kotlin/com/github/b3kt/arthasbridge/core/ArthasLiveTest.kt
+  222a41f41dd69572 77-91
+src/main/kotlin/com/github/b3kt/arthasbridge/ui/SourceNavigation.kt
+  222a41f41dd69572 1-46
+src/main/kotlin/com/github/b3kt/arthasbridge/core/Inspect.kt
+  222a41f41dd69572 1-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "ff4f1931fa4fd514ba3f712273068839c03c625a",
+  "prompts": {
+    "222a41f41dd69572": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e4cd92d0-3632-4df2-84ea-5807420f19ed",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "b3kt <subekti.cahyo@hotmail.com>",
+      "messages": [],
+      "total_additions": 920,
+      "total_deletions": 0,
+      "accepted_lines": 906,
+      "overriden_lines": 13
+    }
+  }
+}
