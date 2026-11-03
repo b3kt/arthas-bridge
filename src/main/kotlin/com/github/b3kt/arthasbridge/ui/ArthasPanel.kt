@@ -60,7 +60,7 @@ import javax.swing.JPanel
 /**
  * Layout:
  *   [status]  JVM: [process ▾] [⟳] [Attach]  Connect to address…        [Stop Arthas] [Disconnect]
- *   [toolbar] | [Overview | Probes | Console] tabs: JVM health (OverviewPanel), live probes (ProbesPanel), console output
+ *   [toolbar] | [Overview | Threads | Classes | Probes | Console] tabs, one panel class each; Console is the raw output
  *   › [command input with history]  [Run]
  */
 class ArthasPanel(private val project: Project, parent: Disposable) : SimpleToolWindowPanel(false, true), Disposable {
@@ -111,9 +111,13 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
         tabs.selectedComponent = console.component
         service.run(command)
     }
+    private val threads = ThreadsPanel(project, this)
+    private val classes = ClassesPanel(project, this)
     private val probes = ProbesPanel(project, this)
     private val tabs: JBTabbedPane = JBTabbedPane().apply {
         addTab("Overview", AllIcons.Actions.ProfileCPU, overview)
+        addTab("Threads", AllIcons.Debugger.Threads, threads)
+        addTab("Classes", AllIcons.Nodes.Class, classes)
         addTab("Probes", AllIcons.Debugger.Watch, probes)
         addTab("Console", AllIcons.Debugger.Console, console.component)
         selectedComponent = console.component

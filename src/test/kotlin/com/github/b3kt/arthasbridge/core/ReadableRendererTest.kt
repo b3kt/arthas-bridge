@@ -14,7 +14,7 @@ class ReadableRendererTest {
 
     private fun watch(value: String, accessPoint: String = "AtExit") = JsonObject().apply {
         addProperty("type", "watch")
-        addProperty("className", "com.tiket.tix.payment.core.rest.controller.PaymentController")
+        addProperty("className", "com.github.b3kt.rest.controller.DemoController")
         addProperty("methodName", "inquiryV3")
         addProperty("accessPoint", accessPoint)
         addProperty("cost", 1.129)
@@ -28,7 +28,7 @@ class ReadableRendererTest {
             @Object[][
                 null,
                 @String[PostmanRuntime/2.12.2],
-                @MandatoryRequest[MandatoryRequest(storeId=TIKETCOM, channelId=DESKTOP, requestId=11bb3252, serviceId=WEB, resellerId=null, identity=null, username=username, loyaltyLevel=null)],
+                @MandatoryRequest[MandatoryRequest(storeId=STOREID, channelId=DESKTOP, requestId=11bb3252, serviceId=WEB, resellerId=null, identity=null, username=username, loyaltyLevel=null)],
                 @PaymentCreateV3Request[PaymentCreateV3Request(referenceId=12006072, amount=12488.0, currency=IDR, items=[a, b], customer=Customer(name=Budi, email=null))],
             ],
             @MonoSubscribeOn[
@@ -57,9 +57,9 @@ class ReadableRendererTest {
             if (count == 4) listOf("serverHttpRequest", "userAgent", "mandatoryRequest", "request") else null
         }
         println(out)
-        assertTrue(out.startsWith("● PaymentController.inquiryV3   11:23:10.324  ·  1.13 ms  ·  ✔ returned"))
+        assertTrue(out.startsWith("● DemoController.inquiryV3   11:23:10.324  ·  1.13 ms  ·  ✔ returned"))
         assertTrue(out.contains("userAgent") && out.contains("\"PostmanRuntime/2.12.2\""))
-        assertTrue(out.contains("mandatoryRequest") && out.contains("storeId") && out.contains("TIKETCOM"))
+        assertTrue(out.contains("mandatoryRequest") && out.contains("storeId") && out.contains("STOREID"))
         assertTrue(out.contains("(3 empty field(s) hidden)"))
         assertTrue(out.contains("Mono (async"))
         assertFalse(out.contains("boundedElastic"))

@@ -18,11 +18,8 @@ import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.DumbAwareAction
-import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.psi.JavaPsiFacade
-import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.CollectionListModel
@@ -222,12 +219,7 @@ class ProbesPanel(private val project: Project, parent: Disposable) : JPanel(Bor
     }
 
     private fun navigate(probe: Probe) {
-        val className = probe.className ?: return
-        if (DumbService.isDumb(project) || className.contains('*')) return
-        val psiClass = JavaPsiFacade.getInstance(project)
-            .findClass(className.substringBefore("$$").replace('$', '.'), GlobalSearchScope.allScope(project)) ?: return
-        val method = probe.methodName?.let { psiClass.findMethodsByName(it, false).firstOrNull() }
-        (method ?: psiClass).navigate(true)
+        probe.className?.let { SourceNavigation.open(project, it, probe.methodName) }
     }
 
     // ---- rendering ----

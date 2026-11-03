@@ -13,7 +13,7 @@ class ArthasCommandsTest {
 
     @Test
     fun `main name from java args`() {
-        assertEquals("com.tiket.App", ArthasCommands.mainName(listOf("-Xmx1g", "-cp", "a.jar:b.jar", "com.tiket.App", "--x")))
+        assertEquals("com.github.b3kt.App", ArthasCommands.mainName(listOf("-Xmx1g", "-cp", "a.jar:b.jar", "com.github.b3kt.App", "--x")))
         assertEquals("app.jar", ArthasCommands.mainName(listOf("-Dfoo=1", "-jar", "/opt/app/app.jar")))
         assertEquals("my.mod/my.Main", ArthasCommands.mainName(listOf("-p", "mods", "-m", "my.mod/my.Main")))
         assertEquals("java", ArthasCommands.mainName(emptyList()))

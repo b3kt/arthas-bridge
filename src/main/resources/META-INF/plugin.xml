@@ -1,12 +1,15 @@
 <idea-plugin>
     <id>com.github.b3kt.arthasbridge</id>
     <name>Arthas Bridge</name>
-    <vendor>tiket.com Payment</vendor>
+    <vendor>b3kt</vendor>
     <description><![CDATA[
     Attach <a href="https://arthas.aliyun.com">Alibaba Arthas</a> to a running JVM and drive it from the IDE.
     <ul>
       <li>Pick a local JVM and attach in one click, or connect to an existing Arthas (port-forward / tunnel).</li>
       <li>Right-click a method: Watch, Trace, Stack, Monitor, Time Tunnel. Right-click a class: Decompile, Search, Hot-swap.</li>
+      <li>Overview: live CPU, heap, threads and GC with the busiest threads.</li>
+      <li>Threads and Classes tabs: sortable thread list with clickable stacks; search loaded classes, see where they came from, decompile, and probe their methods.</li>
+      <li>Probes: several watch / trace / monitor jobs side by side, with trace call trees that highlight the slowest steps.</li>
       <li>Results are rendered readably in the Arthas tool window; card-like numbers are masked by default.</li>
     </ul>
     ]]></description>

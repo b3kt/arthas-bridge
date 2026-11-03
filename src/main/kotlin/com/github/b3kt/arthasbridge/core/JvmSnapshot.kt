@@ -3,9 +3,33 @@ package com.github.b3kt.arthasbridge.core
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 
-data class ThreadSample(val id: Long, val name: String, val state: String, val cpu: Double, val daemon: Boolean) {
+data class ThreadSample(
+    val id: Long,
+    val name: String,
+    val state: String,
+    val cpu: Double,
+    val daemon: Boolean,
+    val group: String = "",
+    /** Total CPU time of the thread so far. */
+    val timeMs: Long = 0,
+) {
     /** Threads Arthas itself runs in the target; not interesting when looking for a busy app thread. */
     val isArthas get() = name.contains("arthas", ignoreCase = true)
+
+    companion object {
+        /** One entry of `threads` (dashboard) or `threadStats` (thread). */
+        fun parse(t: JsonObject) = ThreadSample(
+            id = t.lng("id"),
+            name = t.str("name").orEmpty(),
+            state = t.str("state").orEmpty(),
+            cpu = t.get("cpu")?.takeIf { it.isJsonPrimitive }?.asString?.toDoubleOrNull() ?: 0.0,
+            daemon = t.get("daemon")?.asBoolean == true,
+            group = t.str("group").orEmpty(),
+            timeMs = t.lng("time"),
+        )
+
+        private fun JsonObject.lng(key: String): Long = get(key)?.takeIf { it.isJsonPrimitive }?.asString?.toDoubleOrNull()?.toLong() ?: 0
+    }
 }
 
 /** One `dashboard` sample of the target JVM. */
@@ -53,11 +77,7 @@ data class JvmSnapshot(
                 nonHeapUsed = nonHeap?.lng("used") ?: 0,
                 gcCount = gcs.sumOf { it.lng("collectionCount") },
                 gcTimeMs = gcs.sumOf { it.lng("collectionTime") },
-                threads = dashboard.arr("threads").map { e ->
-                    val t = e.asJsonObject
-                    ThreadSample(t.lng("id"), t.str("name").orEmpty(), t.str("state").orEmpty(), t.dbl("cpu"),
-                        t.get("daemon")?.asBoolean == true)
-                },
+                threads = dashboard.arr("threads").map { ThreadSample.parse(it.asJsonObject) },
             )
         }
 

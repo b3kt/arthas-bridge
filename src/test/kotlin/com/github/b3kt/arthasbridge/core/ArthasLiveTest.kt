@@ -74,6 +74,21 @@ class ArthasLiveTest {
     }
 
     @Test
+    fun `threads and classes views parse live results`() {
+        assumeTrue(port != null)
+        val client = ArthasHttpClient("127.0.0.1", port!!)
+        fun results(command: String) = client.exec(command).getAsJsonObject("body").getAsJsonArray("results").map { it.asJsonObject }
+
+        val main = InspectParser.threads(results("thread --all -i 500")).single { it.name == "main" }
+        val stack = InspectParser.threadDetail(results("thread ${main.id}"))!!
+        assertTrue(stack.frames.any { it.className == "demo.MathGame" })
+
+        assertTrue("demo.MathGame" in InspectParser.classNames(results("sc ${InspectParser.classPattern("MathGame")}")))
+        assertTrue(InspectParser.classInfos(results("sc -d demo.MathGame")).single().codeSource!!.endsWith("math-game.jar"))
+        assertTrue(InspectParser.methods(results("sm demo.MathGame")).any { it.signature == "primeFactors(int): List" })
+    }
+
+    @Test
     fun `probes in separate sessions run side by side`() {
         assumeTrue(port != null)
         val client = ArthasHttpClient("127.0.0.1", port!!)

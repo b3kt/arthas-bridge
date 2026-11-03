@@ -256,6 +256,26 @@ class ArthasService(private val project: Project) : Disposable {
         return results.mapNotNull { if (it.isJsonObject) JvmSnapshot.parse(it.asJsonObject) else null }.lastOrNull()
     }
 
+    /**
+     * Runs a short command in a temporary session and returns all of its results, for views that show data
+     * rather than console text. Blocks; call off the EDT.
+     */
+    fun query(command: String, timeoutMs: Long = 10_000): QueryResult {
+        val c = client ?: return QueryResult(emptyList(), "Not attached to a JVM.")
+        val response = try {
+            c.exec(command, timeoutMs)
+        } catch (e: ArthasException) {
+            return QueryResult(emptyList(), e.message ?: "Command failed")
+        }
+        val results = response.getAsJsonObject("body")?.getAsJsonArray("results")
+            ?.filter { it.isJsonObject }?.map { it.asJsonObject }.orEmpty()
+        val failure = results.firstOrNull { isFailedCommand(it) || (ResultRenderer.isJobEnd(it) && it.get("statusCode")?.asInt != 0) }
+        val error = failure?.let { r ->
+            ResultRenderer.render(r).filterIsInstance<Rendered.Text>().joinToString("") { it.text }.trim().ifEmpty { "Command failed" }
+        }
+        return QueryResult(results, error)
+    }
+
     // ---- probes ----
 
     fun probes(): List<Probe> = probes.toList()

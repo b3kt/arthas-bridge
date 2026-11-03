@@ -64,7 +64,7 @@ Needs JDK 21. The build compiles against the IDE path in `gradle.properties` (`l
 JAVA_HOME=~/.sdkman/candidates/java/21.0.10-tem ./gradlew buildPlugin
 ```
 
-To install, use **Settings | Plugins | ⚙ | Install Plugin from Disk…** and select `build/distributions/arthas-idea-bridge-0.1.0.zip`.
+To install, use **Settings | Plugins | ⚙ | Install Plugin from Disk…** and select `build/distributions/arthas-idea-bridge-0.2.0.zip`.
 
 ```bash
 ./gradlew runIde
