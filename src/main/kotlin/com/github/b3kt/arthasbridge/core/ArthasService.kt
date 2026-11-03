@@ -32,6 +32,7 @@ import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 sealed interface ConnectionState {
     data object Disconnected : ConnectionState
@@ -47,6 +48,10 @@ interface ArthasListener {
     fun output(text: String, kind: OutputKind) {}
     /** A command the user picked in the editor while nothing is attached; put it in the input box. */
     fun prefill(command: String) {}
+    fun probeAdded(probe: Probe) {}
+    /** State or counters changed; [hit] is set when a new call was recorded. */
+    fun probeChanged(probe: Probe, hit: ProbeHit?) {}
+    fun probeRemoved(probe: Probe) {}
 }
 
 internal fun isLoopback(host: String) =
@@ -68,6 +73,11 @@ class ArthasService(private val project: Project) : Disposable {
         private set
 
     val isConnected get() = state is ConnectionState.Connected
+
+    private val probes = CopyOnWriteArrayList<Probe>()
+    private val probeIds = AtomicInteger()
+
+    val liveProbeCount get() = probes.count { it.state.live }
 
     private val listeners = CopyOnWriteArrayList<ArthasListener>()
     private val jobs = AppExecutorUtil.createBoundedApplicationPoolExecutor("Arthas Bridge Jobs", 1)
@@ -163,6 +173,7 @@ class ArthasService(private val project: Project) : Disposable {
     fun stopArthas() = runInBackground {
         val c = client ?: return@runInBackground
         interruptQuietly()
+        interruptProbes(c)
         runCatching { c.exec("stop", 5_000) }
         cleanup()
         emit("Arthas stopped. The target JVM keeps running and enhanced classes were reset.\n", OutputKind.INFO)
@@ -171,6 +182,7 @@ class ArthasService(private val project: Project) : Disposable {
     /** Leaves Arthas running in the target (useful for a shared/remote Arthas). */
     fun disconnect() = runInBackground {
         interruptQuietly()
+        client?.let(::interruptProbes)
         session?.let { s -> client?.closeSession(s) }
         cleanup()
         emit("Disconnected. Arthas is still running in the target JVM.\n", OutputKind.INFO)
@@ -204,6 +216,7 @@ class ArthasService(private val project: Project) : Disposable {
         val line = command.trim()
         if (line.isEmpty()) return
         val c = client ?: return emit("Not attached to a JVM.\n", OutputKind.ERROR)
+        if (ProbeParser.isProbe(line)) return startProbe(c, line)
         if (jobRunning) runInBackground { interruptQuietly() }
         jobs.execute { runJob(c, line) }
     }
@@ -219,8 +232,108 @@ class ArthasService(private val project: Project) : Disposable {
         }
     }
 
+    /** Interrupts the console job and every live probe. */
     fun stopJob() {
-        if (jobRunning) runInBackground { interruptQuietly() }
+        runInBackground {
+            if (jobRunning) interruptQuietly()
+            client?.let(::interruptProbes)
+        }
+    }
+
+    // ---- probes ----
+
+    fun probes(): List<Probe> = probes.toList()
+
+    fun stopProbe(probe: Probe) = runInBackground {
+        probe.stopRequested = true
+        val c = client ?: return@runInBackground
+        probe.session?.let(c::interruptJob)
+    }
+
+    fun removeProbe(probe: Probe) {
+        if (probe.state.live) stopProbe(probe)
+        if (probes.remove(probe)) listeners.forEach { it.probeRemoved(probe) }
+    }
+
+    fun clearFinishedProbes() = probes.filterNot { it.state.live }.forEach(::removeProbe)
+
+    private fun interruptProbes(c: ArthasHttpClient) = probes.filter { it.state.live }.forEach { p ->
+        p.stopRequested = true
+        p.session?.let { runCatching { c.interruptJob(it) } }
+    }
+
+    private fun startProbe(c: ArthasHttpClient, command: String) {
+        if (liveProbeCount >= MAX_LIVE_PROBES) {
+            return emit("Up to $MAX_LIVE_PROBES probes can run at once. Stop one in the Probes tab first.\n", OutputKind.ERROR)
+        }
+        val probe = Probe(probeIds.incrementAndGet(), command)
+        probes += probe
+        emit("\n> $command   (results in the Probes tab)\n", OutputKind.COMMAND)
+        listeners.forEach { it.probeAdded(probe) }
+        ApplicationManager.getApplication().executeOnPooledThread { runProbe(c, probe) }
+    }
+
+    private fun runProbe(c: ArthasHttpClient, probe: Probe) {
+        var failed = false
+        try {
+            val s = c.initSession().also { probe.session = it }
+            if (probe.stopRequested) return
+            c.asyncExec(s, probe.command)
+            while (client === c) {
+                val results = c.pullResults(s)
+                var finished = false
+                for (element in results) {
+                    val result = element.asJsonObject
+                    when {
+                        result.str("type") == "enhancer" && result.get("success")?.asBoolean == true ->
+                            updateProbe(probe) { probe.state = ProbeState.LIVE }
+                        // An interrupted job may end with a non-zero status; that is a stop, not a failure.
+                        !probe.stopRequested &&
+                            (isFailedCommand(result) || (ResultRenderer.isJobEnd(result) && result.get("statusCode")?.asInt != 0)) -> {
+                            failed = true
+                            finished = true
+                            probe.message = ResultRenderer.render(result).filterIsInstance<Rendered.Text>()
+                                .joinToString("") { it.text }.trim().ifEmpty { "Command failed" }
+                        }
+                        ResultRenderer.isJobEnd(result) -> finished = true
+                        else -> ProbeParser.hits(result).forEach { hit ->
+                            val added = probe.add(hit.copy(summary = mask(hit.summary), detail = renderText(hit.source ?: result)))
+                            listeners.forEach { it.probeChanged(probe, added) }
+                        }
+                    }
+                }
+                if (finished) break
+                if (probe.hitCount >= MAX_RESULTS && !probe.stopRequested) {
+                    probe.message = "Stopped after $MAX_RESULTS calls to keep the IDE responsive."
+                    probe.stopRequested = true
+                    c.interruptJob(s)
+                }
+                if (results.size() == 0) Thread.sleep(250)
+            }
+        } catch (e: ArthasException) {
+            if (client === c) {
+                failed = true
+                probe.message = e.message
+            }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } finally {
+            if (failed) emit("${probe.command}: ${probe.message}\n", OutputKind.ERROR)
+            probe.session?.let { s -> if (client === c) runCatching { c.closeSession(s) } }
+            probe.session = null
+            updateProbe(probe) {
+                probe.state = when {
+                    failed -> ProbeState.FAILED
+                    probe.stopRequested || client !== c -> ProbeState.STOPPED
+                    else -> ProbeState.DONE
+                }
+            }
+        }
+    }
+
+    private fun updateProbe(probe: Probe, change: () -> Unit) {
+        change()
+        listeners.forEach { it.probeChanged(probe, null) }
     }
 
     private fun interruptQuietly() {
@@ -282,21 +395,30 @@ class ArthasService(private val project: Project) : Disposable {
         result.str("type") == "command" && result.str("state") == "FAILED"
 
     private fun handle(result: com.google.gson.JsonObject) {
-        val options = ArthasSettings.getInstance().state
-        val mask = options.maskSensitiveData
-        val rendered = if (options.readableOutput) {
-            ReadableRenderer.render(result, paramNames) ?: ResultRenderer.render(result)
-        } else {
-            ResultRenderer.render(result)
-        }
-        for (r in rendered) {
+        for (r in render(result)) {
             when (r) {
-                is Rendered.Text -> emit(if (mask) SensitiveDataMasker.mask(r.text) else r.text, r.kind)
+                is Rendered.Text -> emit(r.text, r.kind)
                 is Rendered.Source -> openSource(r)
                 is Rendered.OutputFile -> openOutputFile(r.path)
             }
         }
     }
+
+    /** Readable or terminal format per the settings, with sensitive text masked. */
+    private fun render(result: com.google.gson.JsonObject): List<Rendered> {
+        val options = ArthasSettings.getInstance().state
+        val rendered = if (options.readableOutput) {
+            ReadableRenderer.render(result, paramNames) ?: ResultRenderer.render(result)
+        } else {
+            ResultRenderer.render(result)
+        }
+        return rendered.map { if (it is Rendered.Text) it.copy(text = mask(it.text)) else it }
+    }
+
+    private fun renderText(result: com.google.gson.JsonObject) = render(result).filterIsInstance<Rendered.Text>()
+
+    private fun mask(text: String) =
+        if (ArthasSettings.getInstance().state.maskSensitiveData) SensitiveDataMasker.mask(text) else text
 
     private val paramCache = ConcurrentHashMap<String, List<String>>()
 
@@ -397,10 +519,12 @@ class ArthasService(private val project: Project) : Disposable {
         val c = client ?: return
         val s = session
         val stop = attachedByUs && ArthasSettings.getInstance().state.stopOnProjectClose
+        val probeSessions = probes.mapNotNull { it.session }
         client = null
         // Best effort, bounded so closing the project never hangs.
         runCatching {
             ApplicationManager.getApplication().executeOnPooledThread {
+                probeSessions.forEach { runCatching { c.interruptJob(it); c.closeSession(it) } }
                 s?.let { c.interruptJob(it); c.closeSession(it) }
                 if (stop) runCatching { c.exec("stop", 2_000) }
             }.get(3, TimeUnit.SECONDS)
@@ -410,6 +534,7 @@ class ArthasService(private val project: Project) : Disposable {
     companion object {
         const val TOOL_WINDOW_ID = "Arthas"
         private const val MAX_RESULTS = 200
+        private const val MAX_LIVE_PROBES = 5
         private val COUNTED = setOf("watch", "trace", "stack", "tt", "monitor")
         private val LOG = logger<ArthasService>()
 

@@ -59,6 +59,37 @@ class ArthasLiveTest {
             client.closeSession(session)
         }
     }
+
+    @Test
+    fun `probes in separate sessions run side by side`() {
+        assumeTrue(port != null)
+        val client = ArthasHttpClient("127.0.0.1", port!!)
+        val commands = listOf(
+            ArthasCommands.watch("demo.MathGame", "primeFactors", 2, 3),
+            ArthasCommands.trace("demo.MathGame", "run", 2),
+        )
+        val sessions = commands.map { command -> client.initSession().also { client.asyncExec(it, command) } }
+        try {
+            val hits = IntArray(commands.size)
+            val finished = BooleanArray(commands.size)
+            val deadline = System.currentTimeMillis() + 20_000
+            while (!finished.all { it } && System.currentTimeMillis() < deadline) {
+                sessions.forEachIndexed { i, s ->
+                    for (r in client.pullResults(s)) {
+                        val obj = r.asJsonObject
+                        hits[i] += ProbeParser.hits(obj).size
+                        if (ResultRenderer.isJobEnd(obj)) finished[i] = true
+                    }
+                }
+                Thread.sleep(200)
+            }
+            assertTrue("both probes should finish", finished.all { it })
+            assertTrue("watch hits: ${hits[0]}", hits[0] == 3)
+            assertTrue("trace hits: ${hits[1]}", hits[1] == 2)
+        } finally {
+            sessions.forEach(client::closeSession)
+        }
+    }
 }
 
 /** Prints readable output for each streaming command against live math-game (for eyeballing). */

@@ -16,10 +16,8 @@ import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.impl.EditorImpl
-import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.project.DumbAware
 import com.github.b3kt.arthasbridge.settings.ArthasSettings
-import java.awt.Font
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAwareAction
@@ -39,6 +37,7 @@ import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.TextFieldWithStoredHistory
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.github.b3kt.arthasbridge.core.ArthasCommands
@@ -48,6 +47,8 @@ import com.github.b3kt.arthasbridge.core.ConnectionState
 import com.github.b3kt.arthasbridge.core.JvmProcess
 import com.github.b3kt.arthasbridge.core.JvmProcesses
 import com.github.b3kt.arthasbridge.core.OutputKind
+import com.github.b3kt.arthasbridge.core.Probe
+import com.github.b3kt.arthasbridge.core.ProbeHit
 import com.github.b3kt.arthasbridge.settings.ArthasConfigurable
 import java.awt.BorderLayout
 import java.awt.FlowLayout
@@ -59,7 +60,7 @@ import javax.swing.JPanel
 /**
  * Layout:
  *   [status]  JVM: [process ▾] [⟳] [Attach]  Connect to address…        [Stop Arthas] [Disconnect]
- *   [toolbar] | console output
+ *   [toolbar] | [Console | Probes] tabs: console output, or live watch / trace / … probes (see ProbesPanel)
  *   › [command input with history]  [Run]
  */
 class ArthasPanel(private val project: Project, parent: Disposable) : SimpleToolWindowPanel(false, true), Disposable {
@@ -106,6 +107,12 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
     }
     private val runButton = JButton("Run", AllIcons.Actions.Execute).apply { addActionListener { submit() } }
 
+    private val probes = ProbesPanel(project, this)
+    private val tabs = JBTabbedPane().apply {
+        addTab("Console", AllIcons.Debugger.Console, console.component)
+        addTab("Probes", AllIcons.Debugger.Watch, probes)
+    }
+
     init {
         Disposer.register(parent, this)
         Disposer.register(this, console)
@@ -123,7 +130,7 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
         }
         val body = JPanel(BorderLayout()).apply {
             add(header, BorderLayout.NORTH)
-            add(console.component, BorderLayout.CENTER)
+            add(tabs, BorderLayout.CENTER)
             add(commandBar, BorderLayout.SOUTH)
         }
         setContent(body)
@@ -137,6 +144,9 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
             override fun jobChanged(running: Boolean) = onEdt { render(service.state) }
             override fun output(text: String, kind: OutputKind) = console.print(text, kind.contentType())
             override fun prefill(command: String) = onEdt { input.text = command; input.textEditor.requestFocusInWindow() }
+            override fun probeAdded(probe: Probe) = onEdt { tabs.selectedComponent = probes; render(service.state) }
+            override fun probeChanged(probe: Probe, hit: ProbeHit?) { if (hit == null) onEdt { render(service.state) } }
+            override fun probeRemoved(probe: Probe) = onEdt { render(service.state) }
         }, this)
 
         applyFontSize()
@@ -170,8 +180,11 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
                 status.foreground = JBColor.foreground()
             }
             is ConnectionState.Connected -> {
-                status.icon = if (service.jobRunning) AnimatedIcon.Default.INSTANCE else AllIcons.Debugger.ThreadRunning
-                status.text = "${state.label}  ·  Arthas ${state.version}" + if (service.jobRunning) "  ·  running…" else ""
+                val live = service.liveProbeCount
+                status.icon = if (service.jobRunning || live > 0) AnimatedIcon.Default.INSTANCE else AllIcons.Debugger.ThreadRunning
+                status.text = "${state.label}  ·  Arthas ${state.version}" +
+                    (if (service.jobRunning) "  ·  running…" else "") +
+                    (if (live > 0) "  ·  $live probe${if (live > 1) "s" else ""} live" else "")
                 status.foreground = JBColor.foreground()
             }
         }
@@ -184,6 +197,7 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
         stopButton.isVisible = connected
         disconnectButton.isVisible = connected
         runButton.isEnabled = connected
+        tabs.setTitleAt(1, if (service.liveProbeCount > 0) "Probes (${service.liveProbeCount})" else "Probes")
         input.isEnabled = true
     }
 
@@ -231,9 +245,9 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
     }
 
     private fun toolbarActions() = DefaultActionGroup().apply {
-        add(object : DumbAwareAction("Stop Running Command", "Interrupt the running watch / trace / …", AllIcons.Actions.Suspend) {
+        add(object : DumbAwareAction("Stop Running Commands", "Interrupt the running command and all live probes", AllIcons.Actions.Suspend) {
             override fun actionPerformed(e: AnActionEvent) = service.stopJob()
-            override fun update(e: AnActionEvent) { e.presentation.isEnabled = service.jobRunning }
+            override fun update(e: AnActionEvent) { e.presentation.isEnabled = service.jobRunning || service.liveProbeCount > 0 }
             override fun getActionUpdateThread() = ActionUpdateThread.BGT
         })
         add(object : DumbAwareAction("Clear Output", null, AllIcons.Actions.GC) {
@@ -307,16 +321,6 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
         )
     }
 
-    private fun OutputKind.contentType() = when (this) {
-        OutputKind.COMMAND -> ConsoleViewContentType.USER_INPUT
-        OutputKind.INFO -> ConsoleViewContentType.SYSTEM_OUTPUT
-        OutputKind.ERROR -> ConsoleViewContentType.ERROR_OUTPUT
-        OutputKind.NORMAL -> ConsoleViewContentType.NORMAL_OUTPUT
-        OutputKind.HEADER -> HEADER
-        OutputKind.MUTED -> MUTED
-        OutputKind.SUCCESS -> SUCCESS
-    }
-
     private fun row(vararg components: java.awt.Component) = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply {
         isOpaque = false
         components.forEach { add(it) }
@@ -327,10 +331,4 @@ class ArthasPanel(private val project: Project, parent: Disposable) : SimpleTool
     }, project.disposed)
 
     override fun dispose() = Unit
-
-    private companion object {
-        val HEADER = ConsoleViewContentType("ARTHAS_HEADER", TextAttributes(null, null, null, null, Font.BOLD))
-        val MUTED = ConsoleViewContentType("ARTHAS_MUTED", TextAttributes(JBColor(0x6C707E, 0x868A91), null, null, null, Font.PLAIN))
-        val SUCCESS = ConsoleViewContentType("ARTHAS_SUCCESS", TextAttributes(JBColor(0x067D17, 0x6AAB73), null, null, null, Font.PLAIN))
-    }
 }
